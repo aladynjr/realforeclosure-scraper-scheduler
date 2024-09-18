@@ -144,7 +144,7 @@ async def run_scraper(auction_date=None):
     os.makedirs('results', exist_ok=True)
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
+        browser = await p.firefox.launch(
             headless=True,
             proxy={
                 "server": f"http://{proxy_host}:{proxy_port}",
@@ -154,30 +154,26 @@ async def run_scraper(auction_date=None):
         )
 
         context = await browser.new_context(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0',
             viewport={'width': 1920, 'height': 1080},
             java_script_enabled=True,
             ignore_https_errors=True,
             extra_http_headers={
-                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
                 'Accept-Encoding': 'gzip, deflate, br',
-                'Referer': 'https://www.google.com/',
-                'Sec-Ch-Ua': '"Chromium";v="116", "Not)A;Brand";v="24", "Google Chrome";v="116"',
-                'Sec-Ch-Ua-Mobile': '?0',
-                'Sec-Ch-Ua-Platform': '"Windows"',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
                 'Sec-Fetch-Dest': 'document',
                 'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'cross-site',
-                'Sec-Fetch-User': '?1',
-                'Upgrade-Insecure-Requests': '1'
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1'
             }
         )
 
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
-        """)
+        # Firefox doesn't need the webdriver property modification
+        # so we can remove the init script
 
         page = await context.new_page()
 
