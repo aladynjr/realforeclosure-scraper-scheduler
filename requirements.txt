@@ -1,0 +1,5 @@
+asyncio==3.4.3
+playwright==1.35.0
+beautifulsoup4==4.10.0
+requests==2.26.0
+python-dotenv==0.19.1
