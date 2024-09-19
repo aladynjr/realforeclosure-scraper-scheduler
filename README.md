@@ -1,6 +1,6 @@
 # Manatee County Real Estate Auction Scraper
 
-This project contains a web scraper for Manatee County real estate auctions, along with a scheduler to run the scraper daily at 6 PM EST and integrate the data with a Google Spreadsheet.
+This project contains a web scraper for Manatee County real estate auctions, along with a scheduler to run the scraper daily at 6 PM EST and integrate the data with a Google Spreadsheet. It also includes a simple web-based log viewer for easy monitoring.
 
 ## Features
 
@@ -11,6 +11,7 @@ This project contains a web scraper for Manatee County real estate auctions, alo
 - Sends scraped data to a Google Spreadsheet, maintaining field order
 - Scheduled to run daily at 6 PM EST
 - Comprehensive logging for monitoring and troubleshooting
+- Web-based log viewer for easy access to logs
 
 ## Requirements
 
@@ -22,6 +23,7 @@ This project contains a web scraper for Manatee County real estate auctions, alo
   - python-dotenv
   - schedule
   - pytz
+  - flask
 - Google account for Spreadsheet integration
 
 ## Setup
@@ -57,20 +59,40 @@ This project contains a web scraper for Manatee County real estate auctions, alo
   python scraper.py
   ```
 
-- To start the scheduled scraper:
+- To start the scheduled scraper and log viewer:
   ```
   python main.py
   ```
 
-The scheduler will run the scraper daily at 6 PM EST. Logs will be written to `scraper_scheduler.log` and displayed in the console.
+The scheduler will run the scraper daily at 6 PM EST. Logs will be written to `scraper_scheduler.log` and can be viewed through the web interface.
 
 ## Project Structure
 
 - `scraper.py`: Contains the main scraping logic and data processing
 - `main.py`: Handles scheduling and execution of the scraper
+- `log_viewer.py`: Flask application for viewing logs
 - `requirements.txt`: Lists all Python package dependencies
 - `scraper_scheduler.log`: Log file for the scheduler and scraper operations
 - `SpreadsheetAppsScriptdoPost.gs`: Google Apps Script for Spreadsheet integration
+
+## Log Viewer
+
+The project now includes a web-based log viewer for easy monitoring of the scraper's operation. 
+
+### Features:
+- Displays logs in reverse chronological order (most recent first)
+- Automatically refreshes every 60 seconds
+- Filters out unrelated Flask and server logs
+- Accessible via web browser
+
+### Usage:
+1. The log viewer starts automatically when you run `main.py`
+2. Access the logs by navigating to `http://your_ip:5000` in a web browser
+3. The page will show only relevant logs related to the scraper's operation
+4. The page refreshes automatically every 60 seconds to show the latest logs
+
+Note: Ensure that port 5000 is open on your VPS firewall to access the log viewer.
+
 
 ## Data Processing
 

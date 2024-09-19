@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 import pytz
 import logging
 from scraper import run_scraper
+from log_viewer import app as flask_app
+import threading
 
 # Set up logging
 logging.basicConfig(
@@ -43,20 +45,41 @@ def run_schedule():
     logger.info("Starting the scraper scheduler")
     
     while True:
-        # Schedule the next run
-        next_run = schedule_next_run()
-        logger.info(f"Next scraper run scheduled for: {next_run} EST")
-        
-        # Sleep until the next run time
-        sleep_seconds = time_until_next_run()
-        logger.info(f"Sleeping for {sleep_seconds / 3600:.2f} hours until next run")
-        time.sleep(sleep_seconds)
-        
-        # Run the job
-        job()
+        try:
+            # Schedule the next run
+            next_run = schedule_next_run()
+            logger.info(f"Next scraper run scheduled for: {next_run} EST")
+            
+            # Sleep until the next run time
+            sleep_seconds = time_until_next_run()
+            logger.info(f"Sleeping for {sleep_seconds / 3600:.2f} hours until next run")
+            
+            try:
+                time.sleep(sleep_seconds)
+            except KeyboardInterrupt:
+                logger.info("Sleep interrupted by user")
+                raise  # re-raise to be caught by outer try-except
+            
+            # Run the job
+            job()
+        except KeyboardInterrupt:
+            logger.info("Scheduler stopped by user")
+            break
+        except Exception as e:
+            logger.error(f"Error in scheduler loop: {str(e)}", exc_info=True)
+            # Optional: add a short sleep to prevent tight error loops
+            time.sleep(60)
+
+def run_flask():
+    flask_app.run(host='0.0.0.0', port=5000)
 
 if __name__ == "__main__":
     try:
+        # Start Flask app in a separate thread
+        flask_thread = threading.Thread(target=run_flask, daemon=True)
+        flask_thread.start()
+        
+        # Run the main scheduler
         run_schedule()
     except KeyboardInterrupt:
         logger.info("Scheduler stopped by user")
