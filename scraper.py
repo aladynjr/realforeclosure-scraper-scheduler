@@ -198,7 +198,7 @@ def process_and_save_auction_data(all_auction_info, auction_date, json_filename,
     print(f"Auction data saved to {json_filename} and {csv_filename}")
 async def run_scraper(auction_date=None):
     if auction_date is None:
-        auction_date = datetime(2024, 9, 14)
+        auction_date = datetime(2024, 9, 16)
     formatted_date = auction_date.strftime("%m/%d/%Y")
 
     proxy_host = 'shared-datacenter.geonode.com'

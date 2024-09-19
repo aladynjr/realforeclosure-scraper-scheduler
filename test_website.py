@@ -7,7 +7,7 @@ import os
 load_dotenv()
 async def test_website():
     # Define the auction date
-    auction_date = datetime(2024, 9, 18)  # September 16, 2024
+    auction_date = datetime(2024, 9, 16)  # September 16, 2024
     formatted_date = auction_date.strftime("%m/%d/%Y")
 
     # Define proxy details
@@ -29,7 +29,8 @@ async def test_website():
         page = await browser.new_page()
 
         # Navigate to the target URL with the specified date
-        url = f'https://manatee.realforeclose.com/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate={formatted_date}'
+        #url = f'https://manatee.realforeclose.com/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate={formatted_date}'
+        url = f'https://denver.realforeclose.com/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate={formatted_date}'
         await page.goto(url, wait_until='networkidle')
 
         print(f"Browser opened and navigated to URL for auction date: {formatted_date}")
