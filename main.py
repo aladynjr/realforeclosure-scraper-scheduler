@@ -21,7 +21,8 @@ def job():
     est_time = datetime.now(pytz.timezone('US/Eastern'))
     logger.info(f"Starting scraper job at {est_time} EST")
     try:
-        asyncio.run(run_scraper())
+        today = datetime.now().date()
+        asyncio.run(run_scraper(auction_date=today))
         logger.info("Scraper job completed successfully")
     except Exception as e:
         logger.error(f"Error occurred during scraper job: {str(e)}", exc_info=True)
