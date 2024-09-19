@@ -22,12 +22,24 @@ logger = logging.getLogger(__name__)
 def job():
     est_time = datetime.now(pytz.timezone('US/Eastern'))
     logger.info(f"Starting scraper job at {est_time} EST")
-    try:
-        today = datetime.now().date()
-        asyncio.run(run_scraper(auction_date=today))
-        logger.info("Scraper job completed successfully")
-    except Exception as e:
-        logger.error(f"Error occurred during scraper job: {str(e)}", exc_info=True)
+    
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            today = datetime.now().date()
+            asyncio.run(run_scraper(auction_date=today))
+            logger.info("Scraper job completed successfully")
+            return  # Exit the function if successful
+        except Exception as e:
+            retry_count += 1
+            logger.error(f"Error occurred during scraper job (attempt {retry_count}/{max_retries}): {str(e)}", exc_info=True)
+            if retry_count < max_retries:
+                logger.info(f"Retrying in 5 minutes...")
+                time.sleep(300)  # Wait for 5 minutes before retrying
+    
+    logger.error("FAILED ALL 3 RETRIES")
 
 def run_schedule():
     est = pytz.timezone('US/Eastern')
