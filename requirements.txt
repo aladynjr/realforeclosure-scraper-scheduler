@@ -1,9 +1,8 @@
-asyncio
-playwright
-beautifulsoup4
-requests
-python-dotenv
-Flask
-Werkzeug
-schedule
-pytz
+asyncio==3.4.3
+playwright==1.35.0
+beautifulsoup4==4.10.0
+requests==2.26.0
+python-dotenv==0.19.1
+flask
+schedule==1.1.0
+pytz==2021.1

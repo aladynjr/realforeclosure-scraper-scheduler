@@ -7,7 +7,7 @@ import os
 load_dotenv()
 async def test_website():
     # Define the auction date
-    auction_date = datetime(2024, 9, 16)  # September 16, 2024
+    auction_date = datetime(2024, 9, 19)  # September 16, 2024
     formatted_date = auction_date.strftime("%m/%d/%Y")
 
     # Define proxy details
