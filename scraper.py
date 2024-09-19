@@ -211,7 +211,7 @@ async def run_scraper(auction_date=None):
     os.makedirs('results', exist_ok=True)
 
     async with async_playwright() as p:
-        browser = await p.firefox.launch(
+        browser = await p.chromium.launch(
             headless=True,
             proxy={
                 "server": f"http://{proxy_host}:{proxy_port}",
@@ -221,7 +221,7 @@ async def run_scraper(auction_date=None):
         )
 
         context = await browser.new_context(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0',
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
             viewport={'width': 1920, 'height': 1080},
             java_script_enabled=True,
             ignore_https_errors=True,
@@ -238,7 +238,6 @@ async def run_scraper(auction_date=None):
                 'Sec-Fetch-User': '?1'
             }
         )
-
         # Firefox doesn't need the webdriver property modification
         # so we can remove the init script
 
