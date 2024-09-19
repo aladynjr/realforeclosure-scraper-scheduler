@@ -5,8 +5,10 @@ This project contains a web scraper for Manatee County real estate auctions, alo
 ## Features
 
 - Scrapes auction data from the Manatee County real estate auction website
-- Saves data in both JSON and CSV formats
-- Sends scraped data to a Google Spreadsheet
+- Filters and processes only auction items sold to 3rd party bidders
+- Saves data in both JSON and CSV formats with consistent field ordering
+- Calculates and includes Excess Amount for each auction item
+- Sends scraped data to a Google Spreadsheet, maintaining field order
 - Scheduled to run daily at 6 PM EST
 - Comprehensive logging for monitoring and troubleshooting
 
@@ -64,15 +66,27 @@ The scheduler will run the scraper daily at 6 PM EST. Logs will be written to `s
 
 ## Project Structure
 
-- `scraper.py`: Contains the main scraping logic
+- `scraper.py`: Contains the main scraping logic and data processing
 - `main.py`: Handles scheduling and execution of the scraper
 - `requirements.txt`: Lists all Python package dependencies
 - `scraper_scheduler.log`: Log file for the scheduler and scraper operations
 - `SpreadsheetAppsScriptdoPost.gs`: Google Apps Script for Spreadsheet integration
 
+## Data Processing
+
+The scraper processes the auction data with the following key features:
+
+1. **3rd Party Bidder Filter**: The scraper only collects and processes auction items that have been sold to 3rd party bidders.
+
+2. **Consistent Field Ordering**: The data is processed to ensure consistent field ordering across JSON, CSV, and Google Spreadsheet outputs. The fields are ordered as follows:
+
+   Auction Date, County, Auction Type, Sold Amount, Opening Bid, Excess Amount, Case #, Parcel ID, Property Address, Property City, Property State, Property Zip, Assessed Value, Auction Status, Final Judgment Amount, Plaintiff Max Bid, Sold Date, Sold To
+
+3. **Excess Amount Calculation**: The Excess Amount is calculated as the difference between the Sold Amount and the Opening Bid, with a minimum value of 0.
+
 ## Google Spreadsheet Integration
 
-This project uses Google Apps Script to automatically update a Google Spreadsheet with the scraped data. Here's how to set it up:
+This project uses Google Apps Script to automatically update a Google Spreadsheet with the scraped data. The integration now maintains the specified field order and includes the Excess Amount calculation.
 
 ### Google Apps Script Setup
 
@@ -138,38 +152,41 @@ function doPost(e) {
 
 - The script creates a new sheet for each auction date or clears an existing sheet if one already exists for that date.
 - It then populates the sheet with the scraped auction data, with each row representing an auction item.
+- The data is now ordered according to the specified field order, including the newly added Excess Amount.
+- The script only processes items sold to 3rd party bidders, as filtered by the Python scraper.
 - The script responds with a success message indicating the number of items added.
 
 Note: Ensure that you have the necessary permissions to create and modify Google Spreadsheets in your Google account.
 
 ## Example Scraped Data
 
-Below is a truncated example of the JSON data structure produced by the scraper:
+Below is an example of the JSON data structure produced by the scraper:
 
 ```json
 {
   "auction_date": "09/18/2024",
-  "total_items": 10,
+  "total_items": 1,
   "auction_items": [
     {
-      "Auction Status": "Auction Sold",
-      "Sold Date": "09/18/2024 10:15 AM",
-      "Sold Amount": "$277,002.00",
-      "Sold To": "THIRD PARTY",
-      "Case #": "2023 CA 001819",
-      "Parcel ID": "3738310303",
-      "Property Address": "7611 41ST CT E, SARASOTA, FL 34243",
-      "Auction Type": "Mortgage Foreclosure",
-      "Attorney's Phone": "813-229-0900",
-      "Opening Bid": "$197,300.00",
-      "Assessed Value": "$218,395.00",
-      "Property City": "SARASOTA",
-      "Property State": "FL",
-      "Property Zip": "34243",
       "Auction Date": "09/18/2024",
-      "County": "Manatee"
+      "County": "Manatee",
+      "Auction Type": "FORECLOSURE",
+      "Sold Amount": "$288,300.00",
+      "Opening Bid": "$197,300.00",
+      "Excess Amount": "$91,000.00",
+      "Case #": "412023CA004038CAAXMA",
+      "Parcel ID": "740902859",
+      "Property Address": "8243 47TH STREET CIR E",
+      "Property City": "PALMETTO",
+      "Property State": "FL",
+      "Property Zip": "34221",
+      "Assessed Value": "$393,733.00",
+      "Auction Status": "Auction Sold",
+      "Final Judgment Amount": "$425,000.00",
+      "Plaintiff Max Bid": "Hidden",
+      "Sold Date": "09/18/2024 11:04 AM ET",
+      "Sold To": "3rd Party Bidder"
     }
-    // ... more items
   ]
 }
 ```
@@ -183,4 +200,6 @@ The actual output will contain more items and may include additional fields depe
 
 ## Note
 
-Ensure that your system clock is accurate, as the scheduler relies on the system time to determine when to run the scraper.
+Ensure that your system clock is accurate, as the scheduler relies on the system time to determine when to run the scraper. Also, be aware that the number of items scraped may vary significantly from day to day, as it depends on the number of auctions sold to 3rd party bidders on any given date.
+
+
