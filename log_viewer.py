@@ -11,9 +11,12 @@ LOG_FILE = 'scraper_scheduler.log'
 def is_relevant_log(log_line):
     # Patterns to exclude
     exclude_patterns = [
-        r'\d+\.\d+\.\d+\.\d+ - - \[.*?\] "GET .*?" \d+ -',  # Flask access logs
+        r'\d+\.\d+\.\d+\.\d+ - - \[.*?\] ".*?" \d+ -',  # Flask access logs
         r'Running on .*',  # Flask startup messages
-        r'Press CTRL\+C to quit'  # Flask quit message
+        r'Press CTRL\+C to quit',  # Flask quit message
+        r'Restarting with.*',  # Flask restart messages
+        r'\* Debugger is active!',  # Flask debug messages
+        r'\* Debugger PIN:.*'  # Flask debugger PIN
     ]
     
     return not any(re.search(pattern, log_line) for pattern in exclude_patterns)
