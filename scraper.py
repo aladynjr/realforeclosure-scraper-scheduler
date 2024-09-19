@@ -15,10 +15,29 @@ load_dotenv()
 WEBAPP_URL = "https://script.google.com/macros/s/AKfycby0nDwiCz097tsotDrqHAEwVS10Q9_dwYnsivN02_SlhBgB7PfXW6OOnYnJV3nqjUD5Aw/exec"
 
 def send_auction_data(auction_date, auction_items):
+    ordered_fields = [
+        "Auction Date", "County", "Auction Type", "Sold Amount", "Opening Bid", 
+        "Excess Amount", "Case #", "Parcel ID", "Property Address", "Property City", 
+        "Property State", "Property Zip", "Assessed Value", "Auction Status", 
+        "Final Judgment Amount", "Plaintiff Max Bid", "Sold Date", "Sold To"
+    ]
+
+    ordered_items = []
+    for item in auction_items:
+        # Calculate Excess Amount
+        opening_bid = float(item.get("Opening Bid", "").replace("$", "").replace(",", "") or 0)
+        sold_amount = float(item.get("Sold Amount", "").replace("$", "").replace(",", "") or 0)
+        excess_amount = max(0, sold_amount - opening_bid)
+
+        ordered_item = {field: item.get(field, "") for field in ordered_fields}
+        ordered_item["Excess Amount"] = f"${excess_amount:.2f}"
+        ordered_items.append(ordered_item)
+
     data = {
         "date": auction_date,
-        "items": auction_items
+        "items": ordered_items
     }
+
     try:
         response = requests.post(WEBAPP_URL, json=data)
         if response.status_code == 200:
@@ -35,30 +54,25 @@ def send_auction_data(auction_date, auction_items):
 async def extract_auction_info(div):
     info = {}
     
-    # Check for Auction Sold status
+    # Check for 3rd Party Bidder
+    sold_to_elem = div.select_one('.ASTAT_MSG_SOLDTO_MSG')
+    if not (sold_to_elem and sold_to_elem.text.strip() == "3rd Party Bidder"):
+        return None  # Skip this item if not sold to 3rd Party Bidder
+    
+    # Extract auction status and details
     status_elem = div.select_one('.ASTAT_MSGA')
-    if status_elem and status_elem.text.strip() == "Auction Sold":
-        info['Auction Status'] = "Sold"
-        
-        # Extract sold date and time
-        sold_date_elem = div.select_one('.ASTAT_MSGB')
-        if sold_date_elem:
-            info['Sold Date'] = sold_date_elem.text.strip()
-        
-        # Extract sold amount
-        sold_amount_elem = div.select_one('.ASTAT_MSGD')
-        if sold_amount_elem:
-            info['Sold Amount'] = sold_amount_elem.text.strip()
-        
-        # Extract sold to information
-        sold_to_elem = div.select_one('.ASTAT_MSG_SOLDTO_MSG')
-        if sold_to_elem:
-            info['Sold To'] = sold_to_elem.text.strip()
-    else:
-        # Original logic for other statuses
-        status_elem = div.select_one('.ASTAT_MSGB')
-        if status_elem:
-            info['Auction Status'] = status_elem.text.strip()
+    if status_elem:
+        info['Auction Status'] = status_elem.text.strip()
+    
+    sold_date_elem = div.select_one('.ASTAT_MSGB')
+    if sold_date_elem:
+        info['Sold Date'] = sold_date_elem.text.strip()
+    
+    sold_amount_elem = div.select_one('.ASTAT_MSGD')
+    if sold_amount_elem:
+        info['Sold Amount'] = sold_amount_elem.text.strip()
+    
+    info['Sold To'] = "3rd Party Bidder"
     
     details_table = div.select_one('.AUCTION_DETAILS table')
     if details_table:
@@ -69,7 +83,7 @@ async def extract_auction_info(div):
                 key = label.text.strip().rstrip(':')
                 value = data.text.strip()
                 if key == '':
-                    # Process the empty key value
+                    # Process the location information
                     location_parts = value.split('-')
                     if len(location_parts) == 2:
                         city_state = location_parts[0].strip().split(',')
@@ -85,16 +99,23 @@ async def extract_auction_info(div):
                         info['Property State'] = ''
                         info['Property Zip'] = ''
                 else:
-                    info[key] = value
+                    info[key] = value.replace('\xa0', ' ').strip()
+    
+    # Extract Parcel ID from the link if present
+    parcel_id_link = details_table.select_one('a[href*="parid="]')
+    if parcel_id_link:
+        info['Parcel ID'] = parcel_id_link.text.strip()
     
     return info
+
 
 def convert_to_csv(json_data, csv_filename):
     with open(csv_filename, 'w', newline='') as csvfile:
         fieldnames = [
             "Auction Date", "County", "Auction Type", "Auction Status", "Sold Date", 
             "Sold Amount", "Sold To", "Opening Bid", "Excess Amount", "Case #", 
-            "Parcel ID", "Property Address", "Property City", "Property State", "Property Zip"
+            "Parcel ID", "Property Address", "Property City", "Property State", "Property Zip",
+            "Assessed Value", "Certificate #"
         ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
@@ -104,13 +125,10 @@ def convert_to_csv(json_data, csv_filename):
             opening_bid = item.get("Opening Bid", "").replace("$", "").replace(",", "")
             opening_bid = float(opening_bid) if opening_bid else 0.0
 
-            sold_amount = item.get("Sold Amount", item.get("Assessed Value", "")).replace("$", "").replace(",", "")
+            sold_amount = item.get("Sold Amount", "").replace("$", "").replace(",", "")
             sold_amount = float(sold_amount) if sold_amount else 0.0
 
             excess_amount = max(0, sold_amount - opening_bid)
-
-            address_parts = item.get("Property Address", "").split(',')
-            property_address = address_parts[0] if address_parts else ""
 
             writer.writerow({
                 "Auction Date": auction_date,
@@ -120,18 +138,67 @@ def convert_to_csv(json_data, csv_filename):
                 "Sold Date": item.get("Sold Date", ""),
                 "Sold Amount": item.get("Sold Amount", ""),
                 "Sold To": item.get("Sold To", ""),
-                "Opening Bid": f"{opening_bid:.2f}",
+                "Opening Bid": item.get("Opening Bid", ""),  # Use the original string value
                 "Excess Amount": f"{excess_amount:.2f}",
                 "Case #": item.get("Case #", ""),
                 "Parcel ID": item.get("Parcel ID", ""),
-                "Property Address": property_address,
+                "Property Address": item.get("Property Address", ""),
                 "Property City": item.get("Property City", ""),
                 "Property State": item.get("Property State", ""),
-                "Property Zip": item.get("Property Zip", "")
+                "Property Zip": item.get("Property Zip", ""),
+                "Assessed Value": item.get("Assessed Value", ""),
+                "Certificate #": item.get("Certificate #", "")
             })
+def process_and_save_auction_data(all_auction_info, auction_date, json_filename, csv_filename):
+    primary_fields = [
+        "Auction Date", "County", "Auction Type", "Sold Amount", "Opening Bid", 
+        "Excess Amount", "Case #", "Parcel ID", "Property Address", "Property City", 
+        "Property State", "Property Zip"
+    ]
+
+    processed_items = []
+    for item in all_auction_info:
+        opening_bid = float(item.get("Opening Bid", "").replace("$", "").replace(",", "") or 0)
+        sold_amount = float(item.get("Sold Amount", "").replace("$", "").replace(",", "") or 0)
+        excess_amount = max(0, sold_amount - opening_bid)
+
+        processed_item = {
+            "Auction Date": auction_date,
+            "County": "Manatee",
+            "Auction Type": item.get("Auction Type", ""),
+            "Sold Amount": item.get("Sold Amount", ""),
+            "Opening Bid": item.get("Opening Bid", ""),
+            "Excess Amount": f"{excess_amount:.2f}",
+            "Case #": item.get("Case #", ""),
+            "Parcel ID": item.get("Parcel ID", ""),
+            "Property Address": item.get("Property Address", ""),
+            "Property City": item.get("Property City", ""),
+            "Property State": item.get("Property State", ""),
+            "Property Zip": item.get("Property Zip", ""),
+            **{k: v for k, v in item.items() if k not in primary_fields}
+        }
+        processed_items.append(processed_item)
+
+    # Save JSON
+    output_data = {
+        "auction_date": auction_date,
+        "total_items": len(processed_items),
+        "auction_items": processed_items
+    }
+    with open(json_filename, 'w') as json_file:
+        json.dump(output_data, json_file, indent=2)
+
+    # Save CSV
+    all_fields = primary_fields + sorted(set(k for item in processed_items for k in item.keys()) - set(primary_fields))
+    with open(csv_filename, 'w', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=all_fields)
+        writer.writeheader()
+        writer.writerows(processed_items)
+
+    print(f"Auction data saved to {json_filename} and {csv_filename}")
 async def run_scraper(auction_date=None):
     if auction_date is None:
-        auction_date = datetime(2024, 9, 18)
+        auction_date = datetime(2024, 9, 14)
     formatted_date = auction_date.strftime("%m/%d/%Y")
 
     proxy_host = 'shared-datacenter.geonode.com'
@@ -230,7 +297,8 @@ async def run_scraper(auction_date=None):
 
             for item in auction_items:
                 info = await extract_auction_info(item)
-                all_auction_info.append(info)
+                if info:  # Only add items sold to 3rd Party Bidder
+                    all_auction_info.append(info)
 
             try:
                 max_page_element = await page.wait_for_selector('#maxCA', timeout=5000)
@@ -272,20 +340,11 @@ async def run_scraper(auction_date=None):
             "auction_items": all_auction_info
         }
 
-        # Save data to JSON file
+
         json_filename = f"results/auction_data_{formatted_date.replace('/', '-')}.json"
-        with open(json_filename, 'w') as json_file:
-            json.dump(output_data, json_file, indent=2)
-
-        print(f"\nAuction data saved to {json_filename}")
-
-        # Convert and save data to CSV file
         csv_filename = f"results/auction_data_{formatted_date.replace('/', '-')}.csv"
-        convert_to_csv(output_data, csv_filename)
 
-        print(f"Auction data saved to {csv_filename}")
-        print(f"Total auction items collected: {len(all_auction_info)}")
-        print(f"Data collected for auction date: {formatted_date}")
+        process_and_save_auction_data(all_auction_info, formatted_date, json_filename, csv_filename)
 
         # Send data to Google Spreadsheet
         print("\nSending data to Google Spreadsheet...")
