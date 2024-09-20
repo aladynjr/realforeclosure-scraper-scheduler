@@ -475,7 +475,7 @@ async def main():
 
     try:
         print('Initializing session...')
-        date = '09/19/2024'
+        date = '09/16/2024'
         await initialize_session(date)
         
         print('Fetching data from all pages...')

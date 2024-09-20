@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyaq7GE1a2l9jinWwL1YQukiWM9aRbtEP4ukwASOhzTc5sJNwOePwYIym-WfdWEHc6a7g/exec"
+SPREADSHEET_APPS_SCRIPT_URL = os.getenv('SPREADSHEET_APPS_SCRIPT_URL')
 
 def send_auction_data(auction_date, auction_items):
     ordered_fields = [
@@ -39,7 +39,7 @@ def send_auction_data(auction_date, auction_items):
     }
 
     try:
-        response = requests.post(WEBAPP_URL, json=data)
+        response = requests.post(SPREADSHEET_APPS_SCRIPT_URL, json=data)
         if response.status_code == 200:
             print(f"Successfully sent data for {len(auction_items)} items.")
             print("Response from server:")
@@ -196,7 +196,17 @@ def process_and_save_auction_data(all_auction_info, auction_date, json_filename,
         writer.writerows(processed_items)
 
     print(f"Auction data saved to {json_filename} and {csv_filename}")
+import time
+import asyncio
+from datetime import datetime
+import os
+import random
+from playwright.async_api import async_playwright
+from bs4 import BeautifulSoup
+
 async def run_scraper(auction_date=None):
+    start_time = time.time()
+
     if auction_date is None:
         auction_date = datetime(2024, 9, 16)
     formatted_date = auction_date.strftime("%m/%d/%Y")
@@ -239,8 +249,7 @@ async def run_scraper(auction_date=None):
                     'Sec-Fetch-User': '?1',
                     'Upgrade-Insecure-Requests': '1'
                 }
-            )        # Firefox doesn't need the webdriver property modification
-        # so we can remove the init script
+            )
 
         page = await context.new_page()
 
@@ -340,7 +349,6 @@ async def run_scraper(auction_date=None):
             "auction_items": all_auction_info
         }
 
-
         json_filename = f"results/auction_data_{formatted_date.replace('/', '-')}.json"
         csv_filename = f"results/auction_data_{formatted_date.replace('/', '-')}.csv"
 
@@ -351,6 +359,10 @@ async def run_scraper(auction_date=None):
         send_auction_data(formatted_date, all_auction_info)
 
         await browser.close()
+
+    end_time = time.time()
+    execution_time = end_time - start_time
+    print(f"\nTotal execution time: {execution_time:.2f} seconds")
 
 if __name__ == "__main__":
     asyncio.run(run_scraper())
