@@ -7,6 +7,12 @@ from bs4 import BeautifulSoup
 import aiofiles
 import csv
 import os
+import requests
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
 
 
 
@@ -15,33 +21,86 @@ proxy_port = '9008'
 proxy_username = os.getenv('PROXY_USERNAME')
 proxy_password = os.getenv('PROXY_PASSWORD')
 
-async def initialize_session(date=None):
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            proxy={
-                "server": f"http://{proxy_host}:{proxy_port}",
-                "username": proxy_username,
-                "password": proxy_password
-            }
-        )
-        context = await browser.new_context(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        )
-        page = await context.new_page()
+SPREADSHEET_APPS_SCRIPT_URL = os.getenv('SPREADSHEET_APPS_SCRIPT_URL')
 
-        auction_date = date or datetime.now().strftime("%m/%d/%Y")
-        url = f"https://manatee.realforeclose.com/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate={auction_date}"
-        print(f"Navigating to {url}")
-        await page.goto(url, wait_until="domcontentloaded")
+def send_auction_data(auction_date, auction_items):
+    ordered_fields = [
+        "Auction Date", "County", "Auction Type", "Sold Amount", "Opening Bid", 
+        "Excess Amount", "Case #", "Parcel ID", "Property Address", "Property City", 
+        "Property State", "Property Zip", "Assessed Value", "Auction Status", 
+        "Certificate #", "Sold Date", "Sold To", "Final Judgment Amount",
+        "Plaintiff Max Bid"
+    ]
 
-        cookies = await context.cookies()
-        async with aiofiles.open('cookies.json', 'w') as f:
-            await f.write(json.dumps(cookies, indent=2))
-        print('Cookies saved to cookies.json')
+    def format_currency(value):
+        if value is None:
+            return ""
+        return f"${value:.2f}" if isinstance(value, (int, float)) else value
 
-        await browser.close()
-        print('Session initialized successfully')
+    ordered_items = []
+    for item in auction_items:
+        ordered_item = {field: item.get(field, "") for field in ordered_fields}
+        
+        # Format currency fields
+        for field in ["Sold Amount", "Opening Bid", "Excess Amount", "Assessed Value", "Final Judgment Amount"]:
+            ordered_item[field] = format_currency(ordered_item[field])
+
+        ordered_items.append(ordered_item)
+
+    data = {
+        "date": auction_date,
+        "items": ordered_items
+    }
+
+    try:
+        response = requests.post(SPREADSHEET_APPS_SCRIPT_URL, json=data)
+        if response.status_code == 200:
+            print(f"Successfully sent data for {len(auction_items)} items to Google Sheets.")
+            print("Response from server:")
+            print(response.text)
+        else:
+            print(f"Failed to send data to Google Sheets. Status code: {response.status_code}")
+            print("Response from server:")
+            print(response.text)
+    except Exception as e:
+        print(f"An error occurred while sending data to Google Sheets: {str(e)}")
+        
+async def initialize_session(date=None, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    proxy={
+                        "server": f"http://{proxy_host}:{proxy_port}",
+                        "username": proxy_username,
+                        "password": proxy_password
+                    }
+                )
+                context = await browser.new_context(
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                )
+                page = await context.new_page()
+
+                auction_date = date or datetime.now().strftime("%m/%d/%Y")
+                url = f"https://manatee.realforeclose.com/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate={auction_date}"
+                print(f"Navigating to {url}")
+                await page.goto(url, wait_until="domcontentloaded")
+
+                cookies = await context.cookies()
+                async with aiofiles.open('cookies.json', 'w') as f:
+                    await f.write(json.dumps(cookies, indent=2))
+                print('Cookies saved to cookies.json')
+
+                await browser.close()
+                print('Session initialized successfully')
+                return  # Success, exit the function
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {str(e)}")
+            if attempt == max_retries - 1:
+                print("All retry attempts exhausted. Session initialization failed.")
+                raise  # Re-raise the last exception if all retries fail
+            await asyncio.sleep(2)  # Wait for 2 seconds before retrying
 
 async def fetch_all_pages():
 
@@ -85,7 +144,7 @@ async def fetch_auction_list(page_number=1, max_retries=3):
     cookies_array = json.loads(cookies_json)
     cookie_string = "; ".join([f"{cookie['name']}={cookie['value']}" for cookie in cookies_array if cookie['domain'] == '.realforeclose.com' or cookie['domain'] == 'manatee.realforeclose.com'])
 
-    proxy_url = f"http://{PROXY_CONFIG['username']}:{PROXY_CONFIG['password']}@{PROXY_CONFIG['host']}:{PROXY_CONFIG['port']}"
+    proxy_url = f"http://{proxy_username}:{proxy_password}@{proxy_host}:{proxy_port}"
     load_url = f"https://manatee.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=UPDATE&FNC=LOAD&AREA=C&PageDir=1&doR=0&bypassPage={page_number}"
 
     for attempt in range(max_retries):
@@ -128,7 +187,7 @@ async def fetch_page_info(rlist, max_retries=3):
     cookies_array = json.loads(cookies_json)
     cookie_string = "; ".join([f"{cookie['name']}={cookie['value']}" for cookie in cookies_array if cookie['domain'] == '.realforeclose.com' or cookie['domain'] == 'manatee.realforeclose.com'])
 
-    proxy_url = f"http://{PROXY_CONFIG['username']}:{PROXY_CONFIG['password']}@{PROXY_CONFIG['host']}:{PROXY_CONFIG['port']}"
+    proxy_url = f"http://{proxy_username}:{proxy_password}@{proxy_host}:{proxy_port}"
 
     timestamp = int(datetime.now().timestamp() * 1000)
     load_url = f"https://manatee.realforeclose.com/index.cfm?zaction=AUCTION&ZMETHOD=UPDATE&FNC=UPDATE&ref={','.join(rlist)}&tx={timestamp}&_={timestamp - 321}"
@@ -363,6 +422,12 @@ def clean_and_filter_auction_data(merged_data, auction_date):
                 print(f"Error processing auction: {e}")
     
     print(f"Cleaned and filtered data for {len(cleaned_data)} auctions")
+    
+    # Save cleaned_data as JSON in results folder
+    os.makedirs('results', exist_ok=True)
+    with open('results/cleaned_data.json', 'w') as f:
+        json.dump(cleaned_data, f, indent=2)
+    print('Saved cleaned_data.json in results folder')
     return cleaned_data
 
 def parse_float(value):
@@ -410,7 +475,7 @@ async def main():
 
     try:
         print('Initializing session...')
-        date = '09/18/2024'
+        date = '09/19/2024'
         await initialize_session(date)
         
         print('Fetching data from all pages...')
@@ -427,6 +492,9 @@ async def main():
         json_filename = f"{date.replace('/', '-')}_final.json"
         await save_to_json(all_data, json_filename)
 
+        print('Sending data to Google Sheets...')
+        send_auction_data(date, cleaned_data)
+
         end_time = datetime.now()
         elapsed_time = (end_time - start_time).total_seconds()
         print(f"Scraper completed successfully at: {end_time.isoformat()}")
@@ -435,6 +503,7 @@ async def main():
         end_time = datetime.now()
         elapsed_time = (end_time - start_time).total_seconds()
         print(f"Error in main function after {elapsed_time:.2f} seconds:", str(error))
+
 
 if __name__ == "__main__":
     asyncio.run(main())

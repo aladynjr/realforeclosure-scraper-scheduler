@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-WEBAPP_URL = "https://script.google.com/macros/s/AKfycby0nDwiCz097tsotDrqHAEwVS10Q9_dwYnsivN02_SlhBgB7PfXW6OOnYnJV3nqjUD5Aw/exec"
+WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyaq7GE1a2l9jinWwL1YQukiWM9aRbtEP4ukwASOhzTc5sJNwOePwYIym-WfdWEHc6a7g/exec"
 
 def send_auction_data(auction_date, auction_items):
     ordered_fields = [
