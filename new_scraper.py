@@ -10,6 +10,7 @@ import os
 import requests
 from dotenv import load_dotenv
 
+import time 
 # Load environment variables
 load_dotenv()
 
@@ -469,14 +470,21 @@ async def save_to_json(data, filename):
     
     print(f'Data saved to JSON: {filepath}')
 
-async def main():
+async def run_new_scraper(auction_date=None):
+    start_time = time.time()
+
+    if auction_date is None:
+        auction_date = datetime(2024, 9, 16)
+    formatted_date = auction_date.strftime("%m/%d/%Y")
+
+
     start_time = datetime.now()
     print(f"Scraper started at: {start_time.isoformat()}")
 
     try:
         print('Initializing session...')
-        date = '09/16/2024'
-        await initialize_session(date)
+
+        await initialize_session(formatted_date)
         
         print('Fetching data from all pages...')
         all_data = await fetch_all_pages()
@@ -506,4 +514,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run_new_scraper())

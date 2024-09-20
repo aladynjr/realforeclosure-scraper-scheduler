@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import pytz
 import logging
 from scraper import run_scraper
+from new_scraper import run_new_scraper
 from log_viewer import app as flask_app
 import threading
 
@@ -29,7 +30,7 @@ def job():
     while retry_count < max_retries:
         try:
             today = datetime.now().date()
-            asyncio.run(run_scraper(auction_date=today))
+            asyncio.run(run_new_scraper(auction_date=today))
             logger.info("Scraper job completed successfully")
             return  # Exit the function if successful
         except Exception as e:
