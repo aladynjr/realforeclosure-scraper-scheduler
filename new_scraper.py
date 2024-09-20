@@ -17,7 +17,7 @@ load_dotenv()
 
 
 proxy_host = 'shared-datacenter.geonode.com'
-proxy_port = '9008'
+proxy_port = '9001'
 proxy_username = os.getenv('PROXY_USERNAME')
 proxy_password = os.getenv('PROXY_PASSWORD')
 
