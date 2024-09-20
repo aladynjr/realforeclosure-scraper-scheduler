@@ -100,7 +100,7 @@ async def initialize_session(date=None, max_retries=3):
             if attempt == max_retries - 1:
                 print("All retry attempts exhausted. Session initialization failed.")
                 raise  # Re-raise the last exception if all retries fail
-            await asyncio.sleep(2)  # Wait for 2 seconds before retrying
+            await asyncio.sleep(1)  # Wait for 2 seconds before retrying
 
 async def fetch_all_pages():
 
@@ -177,7 +177,7 @@ async def fetch_auction_list(page_number=1, max_retries=3):
                 raise ValueError(f"Unable to parse response as JSON. Content type: {content_type}")
             else:
                 print(f"Retrying in 2 seconds...")
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
 
 
 async def fetch_page_info(rlist, max_retries=3):
@@ -218,7 +218,7 @@ async def fetch_page_info(rlist, max_retries=3):
                 raise
             else:
                 print(f"Retrying in 2 seconds...")
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
 
 
 def preprocess_html(html):
