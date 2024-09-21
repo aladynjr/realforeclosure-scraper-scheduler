@@ -430,7 +430,7 @@ def clean_and_filter_auction_data(merged_data, auction_date, county_website):
             except Exception as e:
                 print(f"Error processing auction: {e}")
 
-    logger.info(f"Cleaned and filtered data for {len(cleaned_data)} auctions")
+    logger.info(f"Cleaned and filtered data :  {len(cleaned_data)} auctions")
 
     # Save cleaned_data as JSON in results folder
     os.makedirs('results', exist_ok=True)
