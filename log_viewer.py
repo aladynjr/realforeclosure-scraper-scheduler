@@ -16,7 +16,9 @@ def is_relevant_log(log_line):
         r'Press CTRL\+C to quit',  # Flask quit message
         r'Restarting with.*',  # Flask restart messages
         r'\* Debugger is active!',  # Flask debug messages
-        r'\* Debugger PIN:.*'  # Flask debugger PIN
+        r'\* Debugger PIN:.*',  # Flask debugger PIN
+        r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} - INFO - .*? - - \[.*?\] "\[35m\[1m.*?\[0m" HTTPStatus\..*? -',  # Specific bad request logs
+        r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} - ERROR - .*? - - \[.*?\] code \d+, message .*'  # Error messages related to bad requests
     ]
     
     return not any(re.search(pattern, log_line) for pattern in exclude_patterns)
