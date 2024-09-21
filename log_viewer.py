@@ -18,11 +18,11 @@ def is_relevant_log(log_line):
         r'\* Debugger is active!',  # Flask debug messages
         r'\* Debugger PIN:.*',  # Flask debugger PIN
         r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} - INFO - .*? - - \[.*?\] "\[35m\[1m.*?\[0m" HTTPStatus\..*? -',  # Specific bad request logs
-        r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} - ERROR - .*? - - \[.*?\] code \d+, message .*'  # Error messages related to bad requests
+        r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} - ERROR - .*? - - \[.*?\] code \d+, message .*',  # Error messages related to bad requests
+        r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} - INFO - \[31m\[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.\[0m'  # Development server warning
     ]
     
     return not any(re.search(pattern, log_line) for pattern in exclude_patterns)
-
 @app.route('/')
 def view_log():
     if os.path.exists(LOG_FILE):
