@@ -29,8 +29,6 @@ proxy_port = '9008'
 proxy_username = os.getenv('PROXY_USERNAME')
 proxy_password = os.getenv('PROXY_PASSWORD')
 
-initializing_fail_list = []
-
 
 SPREADSHEET_APPS_SCRIPT_URL = os.getenv('SPREADSHEET_APPS_SCRIPT_URL')
 COLUMN_NAMES = [
@@ -102,7 +100,6 @@ async def initialize_session(page, county_website, formatted_date):
         print("Session initialized")
     except Exception as e:
         print(f"Failed to initialize session: {str(e)}")
-        initializing_fail_list.append(county_website)
         raise Exception("Failed to initialize session")
 
 
@@ -630,27 +627,7 @@ async def run_all_counties(json_file_path):
         # Optional: Add a delay between scraping different websites
         await asyncio.sleep(1)  # 5 seconds delay, adjust as needed
 
-    # Retry failed initializations
-    if initializing_fail_list:
-        print("\nRetrying failed initializations...")
-        retry_list = initializing_fail_list.copy()
-        for failed_county in retry_list:
-            print(f"Retrying: {failed_county}")
-            try:
-                await run_new_scraper(failed_county)
-                print(f"Successfully scraped on retry: {failed_county}")
-            except Exception as e:
-                print(f"Failed to scrape on retry: {failed_county}. Error: {str(e)}")
 
-        if initializing_fail_list:
-            print("\nCounties that failed after retry:")
-            for county in initializing_fail_list:
-                print(county)
-        else:
-            print("\nAll retries successful!")
-
-    # Reset initializing_fail_list regardless of retry results
-    initializing_fail_list = []
 
 if __name__ == "__main__":
     json_file_path = 'counties_websites_list.json'
