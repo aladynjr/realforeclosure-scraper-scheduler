@@ -29,6 +29,9 @@ proxy_port = '9008'
 proxy_username = os.getenv('PROXY_USERNAME')
 proxy_password = os.getenv('PROXY_PASSWORD')
 
+initializing_fail_list = []
+
+
 SPREADSHEET_APPS_SCRIPT_URL = os.getenv('SPREADSHEET_APPS_SCRIPT_URL')
 COLUMN_NAMES = [
     "Auction Date", "County", "Auction Type", "Sold Amount", "Opening Bid",
@@ -85,7 +88,6 @@ def send_auction_data(auction_date, auction_items):
         print(f"An error occurred while sending data to Google Sheets: {str(e)}")
 
 
-initializing_fail_list = []
 async def initialize_session(page, county_website, formatted_date):
     url = f"https://{county_website}/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate={formatted_date}"
     max_retries = 2
@@ -608,11 +610,11 @@ async def run_all_counties(json_file_path):
     # Retry failed initializations
     if initializing_fail_list:
         print("\nRetrying failed initializations...")
-        for failed_county in initializing_fail_list[:]:
+        retry_list = initializing_fail_list.copy()
+        for failed_county in retry_list:
             print(f"Retrying: {failed_county}")
             try:
                 await run_new_scraper(failed_county)
-                initializing_fail_list.remove(failed_county)
                 print(f"Successfully scraped on retry: {failed_county}")
             except Exception as e:
                 print(f"Failed to scrape on retry: {failed_county}. Error: {str(e)}")
@@ -624,11 +626,14 @@ async def run_all_counties(json_file_path):
         else:
             print("\nAll retries successful!")
 
+    # Reset initializing_fail_list regardless of retry results
+    initializing_fail_list = []
+
 if __name__ == "__main__":
     json_file_path = 'counties_websites_list.json'
     #county_website = "eagle.realforeclose.com"
-    #county_website = "duval.realtaxdeed.com"
-    #asyncio.run(run_new_scraper(county_website))
+    # county_website = "coconino.realtaxdeed.com"
+    # asyncio.run(run_new_scraper(county_website))
     if not os.path.exists(json_file_path):
         logger.error(f"Error: The file {json_file_path} does not exist.")
         logger.info("Falling back to default county website...")

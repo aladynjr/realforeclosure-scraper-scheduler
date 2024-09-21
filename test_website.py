@@ -38,7 +38,7 @@ async def test_website():
         # Navigate to the target URL with the specified date
         #url = f'https://manatee.realforeclose.com/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate={formatted_date}'
       #  url = f'https://manatee.realforeclose.com/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate={formatted_date}'
-        url = f'https://duval.realtaxdeed.com/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate={formatted_date}'
+        url = f'https://coconino.realtaxdeed.com/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate={formatted_date}'
         await page.goto(url, wait_until='networkidle')
 
         print(f"Browser opened and navigated to URL for auction date: {formatted_date}")
