@@ -480,7 +480,6 @@ async def save_to_json(data, filename, county_website):
 
 #new_scraper.py
 def log(message, level='info'):
-    print(message)
     if logger:
         if level == 'info':
             logger.info(message)
@@ -491,9 +490,9 @@ def log(message, level='info'):
 
 async def run_new_scraper(county_website, auction_date=None):
     start_time = time.time()
-
+    print(auction_date)
     if auction_date is None:
-        auction_date = datetime(2024, 9, 11)  # Use specified date
+        auction_date = datetime.now().date()  # Use today's date
     formatted_date = auction_date.strftime("%m/%d/%Y")
 
     start_time = datetime.now()
@@ -595,7 +594,7 @@ async def run_all_counties(json_file_path):
 
         try:
             auction_date = datetime(2024, 9, 11)  # September 18, 2024
-            await run_new_scraper(county_website, auction_date)
+            await run_new_scraper(county_website)#, auction_date)
         except Exception as e:
             print(f"Error occurred while scraping {county_website}: {str(e)}")
 
@@ -604,7 +603,7 @@ async def run_all_counties(json_file_path):
         print("="*50 + "\n")
 
         # Optional: Add a delay between scraping different websites
-        await asyncio.sleep(5)  # 5 seconds delay, adjust as needed
+        await asyncio.sleep(1)  # 5 seconds delay, adjust as needed
 
     # Retry failed initializations
     if initializing_fail_list:
@@ -612,7 +611,7 @@ async def run_all_counties(json_file_path):
         for failed_county in initializing_fail_list[:]:
             print(f"Retrying: {failed_county}")
             try:
-                await run_new_scraper(failed_county, auction_date)
+                await run_new_scraper(failed_county)
                 initializing_fail_list.remove(failed_county)
                 print(f"Successfully scraped on retry: {failed_county}")
             except Exception as e:
