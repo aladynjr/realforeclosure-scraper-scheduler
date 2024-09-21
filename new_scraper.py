@@ -503,82 +503,113 @@ async def run_new_scraper(county_website, auction_date=None):
     else:
         print(f"Scraper started for website: {county_website}, date: {formatted_date}")
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            proxy={
-                "server": f"http://{proxy_host}:{proxy_port}",
-                "username": proxy_username,
-                "password": proxy_password
-            }
-        )
-        context = await browser.new_context(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        )
-        page = await context.new_page()
+    max_browser_retries = 3
+    browser_retry_count = 0
 
+    while browser_retry_count < max_browser_retries:
         try:
-            if logger:
-                logger.info(f'Initializing session for {county_website}...')
-            else:
-                print(f'Initializing session for {county_website}...')
-            await initialize_session(page, county_website, formatted_date)
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    proxy={
+                        "server": f"http://{proxy_host}:{proxy_port}",
+                        "username": proxy_username,
+                        "password": proxy_password
+                    }
+                )
+                context = await browser.new_context(
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                )
+                page = await context.new_page()
 
-            if logger:
-                logger.info(f'Fetching data from all pages for {county_website}...')
-            else:
-                print(f'Fetching data from all pages for {county_website}...')
-            all_data = await fetch_all_pages(page, county_website)
+                try:
+                    if logger:
+                        logger.info(f'Initializing session for {county_website}...')
+                    else:
+                        print(f'Initializing session for {county_website}...')
+                    await initialize_session(page, county_website, formatted_date)
 
-            if logger:
-                logger.info(f'Cleaning and filtering auction data for {county_website}...')
-            else:
-                print(f'Cleaning and filtering auction data for {county_website}...')
-            cleaned_data = clean_and_filter_auction_data(all_data, formatted_date, county_website)
+                    if logger:
+                        logger.info(f'Fetching data from all pages for {county_website}...')
+                    else:
+                        print(f'Fetching data from all pages for {county_website}...')
+                    all_data = await fetch_all_pages(page, county_website)
 
-            if cleaned_data:
+                    if logger:
+                        logger.info(f'Cleaning and filtering auction data for {county_website}...')
+                    else:
+                        print(f'Cleaning and filtering auction data for {county_website}...')
+                    cleaned_data = clean_and_filter_auction_data(all_data, formatted_date, county_website)
+
+                    if cleaned_data:
+                        if logger:
+                            logger.info(f'Saving cleaned auction data to CSV for {county_website}...')
+                        else:
+                            print(f'Saving cleaned auction data to CSV for {county_website}...')
+                        csv_filename = f"{formatted_date.replace('/', '-')}.csv"
+                        await save_to_csv(cleaned_data, csv_filename, county_website)
+
+                        if logger:
+                            logger.info(f'Saving final JSON data for {county_website}...')
+                        else:
+                            print(f'Saving final JSON data for {county_website}...')
+                        json_filename = f"{formatted_date.replace('/', '-')}_final.json"
+                        await save_to_json(all_data, json_filename, county_website)
+
+                        if logger:
+                            logger.info(f'Sending data to Google Sheets for {county_website}...')
+                        else:
+                            print(f'Sending data to Google Sheets for {county_website}...')
+                        send_auction_data(formatted_date, cleaned_data)
+                    else:
+                        if logger:
+                            logger.info(f"No auction data found for {county_website} on {formatted_date}. Skipping CSV, JSON, and Google Sheets operations.")
+                        else:
+                            print(f"No auction data found for {county_website} on {formatted_date}. Skipping CSV, JSON, and Google Sheets operations.")
+
+                    end_time = datetime.now()
+                    elapsed_time = (end_time - start_time).total_seconds()
+                    if logger:
+                        logger.info(f"Scraper completed successfully for {county_website} at: {end_time.isoformat()}")
+                        logger.info(f"Total execution time for {county_website}: {elapsed_time:.2f} seconds")
+                    else:
+                        print(f"Scraper completed successfully for {county_website} at: {end_time.isoformat()}")
+                        print(f"Total execution time for {county_website}: {elapsed_time:.2f} seconds")
+                    
+                    # If we reach here without exceptions, break the retry loop
+                    break
+
+                except Exception as error:
+                    end_time = datetime.now()
+                    elapsed_time = (end_time - start_time).total_seconds()
+                    if logger:
+                        logger.error(f"Error in main function for {county_website} after {elapsed_time:.2f} seconds: {str(error)}")
+                    else:
+                        print(f"Error in main function for {county_website} after {elapsed_time:.2f} seconds: {str(error)}")
+                    
+                    # Re-raise the exception to be caught by the outer try-except
+                    raise
+
+                finally:
+                    await browser.close()
+
+        except Exception as browser_error:
+            browser_retry_count += 1
+            if logger:
+                logger.error(f"Browser initialization failed (attempt {browser_retry_count}/{max_browser_retries}): {str(browser_error)}")
+            else:
+                print(f"Browser initialization failed (attempt {browser_retry_count}/{max_browser_retries}): {str(browser_error)}")
+
+            if browser_retry_count == max_browser_retries:
                 if logger:
-                    logger.info(f'Saving cleaned auction data to CSV for {county_website}...')
+                    logger.error(f"Failed to initialize browser after {max_browser_retries} attempts. Aborting scraper for {county_website}.")
                 else:
-                    print(f'Saving cleaned auction data to CSV for {county_website}...')
-                csv_filename = f"{formatted_date.replace('/', '-')}.csv"
-                await save_to_csv(cleaned_data, csv_filename, county_website)
+                    print(f"Failed to initialize browser after {max_browser_retries} attempts. Aborting scraper for {county_website}.")
+                break
 
-                if logger:
-                    logger.info(f'Saving final JSON data for {county_website}...')
-                else:
-                    print(f'Saving final JSON data for {county_website}...')
-                json_filename = f"{formatted_date.replace('/', '-')}_final.json"
-                await save_to_json(all_data, json_filename, county_website)
+            # Wait before retrying
+            await asyncio.sleep(5)
 
-                if logger:
-                    logger.info(f'Sending data to Google Sheets for {county_website}...')
-                else:
-                    print(f'Sending data to Google Sheets for {county_website}...')
-                send_auction_data(formatted_date, cleaned_data)
-            else:
-                if logger:
-                    logger.info(f"No auction data found for {county_website} on {formatted_date}. Skipping CSV, JSON, and Google Sheets operations.")
-                else:
-                    print(f"No auction data found for {county_website} on {formatted_date}. Skipping CSV, JSON, and Google Sheets operations.")
-
-            end_time = datetime.now()
-            elapsed_time = (end_time - start_time).total_seconds()
-            if logger:
-                logger.info(f"Scraper completed successfully for {county_website} at: {end_time.isoformat()}")
-                logger.info(f"Total execution time for {county_website}: {elapsed_time:.2f} seconds")
-            else:
-                print(f"Scraper completed successfully for {county_website} at: {end_time.isoformat()}")
-                print(f"Total execution time for {county_website}: {elapsed_time:.2f} seconds")
-        except Exception as error:
-            end_time = datetime.now()
-            elapsed_time = (end_time - start_time).total_seconds()
-            if logger:
-                logger.error(f"Error in main function for {county_website} after {elapsed_time:.2f} seconds: {str(error)}")
-            else:
-                print(f"Error in main function for {county_website} after {elapsed_time:.2f} seconds: {str(error)}")
-        finally:
-            await browser.close()
 
 
 async def run_all_counties(json_file_path):
