@@ -90,28 +90,20 @@ def send_auction_data(auction_date, auction_items):
 
 async def initialize_session(page, county_website, formatted_date):
     url = f"https://{county_website}/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate={formatted_date}"
-    max_retries = 2
-    retry_count = 0
     
-    while retry_count < max_retries:
-        try:
-            await asyncio.wait_for(
-                page.goto(url, wait_until="domcontentloaded"),
-                timeout=15.0
-            )
-            content = await page.content()
-            if '403 Forbidden' in content:
-                raise Exception("403 Forbidden error encountered")
-            print("Session initialized")
-            return
-        except Exception as e:
-            retry_count += 1
-            print(f"Attempt {retry_count} failed: {str(e)}")
-            if retry_count == max_retries:
-                initializing_fail_list.append(county_website)
-                raise Exception(f"Failed to initialize session after {max_retries} attempts")
-            await asyncio.sleep(1)  # Wait for 1 second before retrying
-
+    try:
+        await asyncio.wait_for(
+            page.goto(url, wait_until="domcontentloaded"),
+            timeout=15.0
+        )
+        content = await page.content()
+        if '403 Forbidden' in content:
+            raise Exception("403 Forbidden error encountered")
+        print("Session initialized")
+    except Exception as e:
+        print(f"Failed to initialize session: {str(e)}")
+        initializing_fail_list.append(county_website)
+        raise Exception("Failed to initialize session")
 
 
 async def fetch_all_pages(page, county_website):
