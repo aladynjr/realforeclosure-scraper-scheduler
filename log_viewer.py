@@ -47,11 +47,15 @@ def view_log():
             body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
             h1 { color: #333; }
             pre { background-color: #f4f4f4; padding: 10px; border-radius: 5px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; }
+            .starting { color: #0000FF; font-weight: bold; }
+            .sleeping { color: #808080; }
+            .completed { color: #008000; font-weight: bold; background-color: #90EE90; }
+            .error { color: #FF0000; font-weight: bold; background-color: #FFA07A; }
         </style>
     </head>
     <body>
         <h1>Scraper Logs</h1>
-        <pre>{{ logs | join('') }}</pre>
+        <pre>{{ logs | safe }}</pre>
         <script>
             setTimeout(function(){ location.reload(); }, 60000);  // Refresh every 60 seconds
         </script>
@@ -59,7 +63,16 @@ def view_log():
     </html>
     """
     
-    return render_template_string(html_template, logs=logs)
+    # Process logs to add HTML tags for highlighting
+    processed_logs = []
+    for log in logs:
+        log = log.replace("Starting", '<span class="starting">Starting</span>')
+        log = log.replace("Sleeping", '<span class="sleeping">Sleeping</span>')
+        log = log.replace("completed successfully", '<span class="completed">completed successfully</span>')
+        log = log.replace("Error", '<span class="error">Error</span>')
+        processed_logs.append(log)
+    
+    return render_template_string(html_template, logs=''.join(processed_logs))
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
