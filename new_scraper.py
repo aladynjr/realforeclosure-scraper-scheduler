@@ -490,7 +490,7 @@ def log(message, level='info'):
 
 async def run_new_scraper(county_website, auction_date=None):
     start_time = time.time()
-    print(auction_date)
+
     if auction_date is None:
         auction_date = datetime.now().date()  # Use today's date
     formatted_date = auction_date.strftime("%m/%d/%Y")
