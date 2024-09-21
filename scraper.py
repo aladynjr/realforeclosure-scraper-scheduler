@@ -8,6 +8,7 @@ import json
 import csv
 import requests
 from dotenv import load_dotenv
+import time
 
 # Load environment variables
 load_dotenv()
@@ -196,13 +197,6 @@ def process_and_save_auction_data(all_auction_info, auction_date, json_filename,
         writer.writerows(processed_items)
 
     print(f"Auction data saved to {json_filename} and {csv_filename}")
-import time
-import asyncio
-from datetime import datetime
-import os
-import random
-from playwright.async_api import async_playwright
-from bs4 import BeautifulSoup
 
 async def run_scraper(auction_date=None):
     start_time = time.time()

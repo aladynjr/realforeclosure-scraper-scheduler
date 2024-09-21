@@ -9,30 +9,49 @@ import csv
 import os
 import requests
 from dotenv import load_dotenv
+import pytz
+from datetime import date
+import re
 
-import time 
+try:
+    from main import get_logger
+    logger = get_logger()
+except ImportError:
+    logger = None
+
+import time
 # Load environment variables
 load_dotenv()
 
 
-
-
 proxy_host = 'shared-datacenter.geonode.com'
-proxy_port = '9001'
+proxy_port = '9008'
 proxy_username = os.getenv('PROXY_USERNAME')
 proxy_password = os.getenv('PROXY_PASSWORD')
 
 SPREADSHEET_APPS_SCRIPT_URL = os.getenv('SPREADSHEET_APPS_SCRIPT_URL')
+COLUMN_NAMES = [
+    "Auction Date", "County", "Auction Type", "Sold Amount", "Opening Bid",
+    "Excess Amount", "Case #", "Parcel ID", "Property Address", "Property City",
+    "Property State", "Property Zip", "Assessed Value", "Auction Status",
+    "Certificate #", "Sold Date", "Sold To", "Final Judgment Amount",
+    "Plaintiff Max Bid", "Lenders Starting Bid Amount"
+]
+
+def get_county_prefix(county_website):
+    if county_website.startswith(('http://', 'https://')):
+        county_website = county_website.split('://', 1)[1]
+    if county_website.endswith('.com'):
+        county_website = county_website[:-4]
+    return county_website.replace('.', '_')
+
+
+def extract_county_name(county_website):
+    county = county_website.split('.')[0]
+    return county.capitalize()
+
 
 def send_auction_data(auction_date, auction_items):
-    ordered_fields = [
-        "Auction Date", "County", "Auction Type", "Sold Amount", "Opening Bid", 
-        "Excess Amount", "Case #", "Parcel ID", "Property Address", "Property City", 
-        "Property State", "Property Zip", "Assessed Value", "Auction Status", 
-        "Certificate #", "Sold Date", "Sold To", "Final Judgment Amount",
-        "Plaintiff Max Bid"
-    ]
-
     def format_currency(value):
         if value is None:
             return ""
@@ -40,10 +59,11 @@ def send_auction_data(auction_date, auction_items):
 
     ordered_items = []
     for item in auction_items:
-        ordered_item = {field: item.get(field, "") for field in ordered_fields}
-        
+        ordered_item = {field: item.get(field, "") for field in COLUMN_NAMES}
+
         # Format currency fields
-        for field in ["Sold Amount", "Opening Bid", "Excess Amount", "Assessed Value", "Final Judgment Amount"]:
+        currency_fields = ["Sold Amount", "Opening Bid", "Excess Amount", "Assessed Value", "Final Judgment Amount", "Lenders Starting Bid Amount"]
+        for field in currency_fields:
             ordered_item[field] = format_currency(ordered_item[field])
 
         ordered_items.append(ordered_item)
@@ -57,195 +77,139 @@ def send_auction_data(auction_date, auction_items):
         response = requests.post(SPREADSHEET_APPS_SCRIPT_URL, json=data)
         if response.status_code == 200:
             print(f"Successfully sent data for {len(auction_items)} items to Google Sheets.")
-            print("Response from server:")
-            print(response.text)
+            print("Response from server:", response.text)
         else:
             print(f"Failed to send data to Google Sheets. Status code: {response.status_code}")
-            print("Response from server:")
-            print(response.text)
+            print("Response from server:", response.text)
     except Exception as e:
         print(f"An error occurred while sending data to Google Sheets: {str(e)}")
-        
-async def initialize_session(date=None, max_retries=3):
-    for attempt in range(max_retries):
+
+
+initializing_fail_list = []
+async def initialize_session(page, county_website, formatted_date):
+    url = f"https://{county_website}/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate={formatted_date}"
+    max_retries = 2
+    retry_count = 0
+    
+    while retry_count < max_retries:
         try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(
-                    headless=True,
-                    proxy={
-                        "server": f"http://{proxy_host}:{proxy_port}",
-                        "username": proxy_username,
-                        "password": proxy_password
-                    }
-                )
-                context = await browser.new_context(
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                )
-                page = await context.new_page()
-
-                auction_date = date or datetime.now().strftime("%m/%d/%Y")
-                url = f"https://manatee.realforeclose.com/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate={auction_date}"
-                print(f"Navigating to {url}")
-                await page.goto(url, wait_until="domcontentloaded")
-
-                cookies = await context.cookies()
-                async with aiofiles.open('cookies.json', 'w') as f:
-                    await f.write(json.dumps(cookies, indent=2))
-                print('Cookies saved to cookies.json')
-
-                await browser.close()
-                print('Session initialized successfully')
-                return  # Success, exit the function
+            await asyncio.wait_for(
+                page.goto(url, wait_until="domcontentloaded"),
+                timeout=15.0
+            )
+            content = await page.content()
+            if '403 Forbidden' in content:
+                raise Exception("403 Forbidden error encountered")
+            print("Session initialized")
+            return
         except Exception as e:
-            print(f"Attempt {attempt + 1} failed: {str(e)}")
-            if attempt == max_retries - 1:
-                print("All retry attempts exhausted. Session initialization failed.")
-                raise  # Re-raise the last exception if all retries fail
-            await asyncio.sleep(1)  # Wait for 2 seconds before retrying
+            retry_count += 1
+            print(f"Attempt {retry_count} failed: {str(e)}")
+            if retry_count == max_retries:
+                initializing_fail_list.append(county_website)
+                raise Exception(f"Failed to initialize session after {max_retries} attempts")
+            await asyncio.sleep(1)  # Wait for 1 second before retrying
 
-async def fetch_all_pages():
 
+
+async def fetch_all_pages(page, county_website):
     all_auctions = []
     page_number = 1
     total_pages = None
-    last_page_info = None
 
-    try:
-        while True:
-            auction_list = await fetch_auction_list(page_number)
-            parsed_auctions = parse_auction_data(auction_list)
-            
-            page_info = await fetch_page_info(parsed_auctions['rlist'])
-            parsed_page_data = parse_page_data(page_info)
-            
-            if total_pages is None:
-                total_pages = int(parsed_page_data['pageInfo']['total'])
-                print(f"Total pages: {total_pages}")
+    while True:
+        auction_list = await fetch_auction_list(page, county_website, page_number)
+        parsed_auctions = parse_auction_data(auction_list)
 
-            merged_page_data = merge_auction_data(parsed_auctions, parsed_page_data)
-            all_auctions.extend(merged_page_data['auctions'])
+        page_info = await fetch_page_info(page, county_website, parsed_auctions['rlist'])
+        parsed_page_data = parse_page_data(page_info)
 
-            last_page_info = parsed_page_data['pageInfo']
+        if total_pages is None:
+            total_pages = int(parsed_page_data['pageInfo']['total'])
+            logger.info(f"Total pages: {total_pages}")
 
-            print(f"Processed page {page_number} of {total_pages}")
-            page_number += 1
+        if total_pages == 0:
+            print("No auctions found for this date.")
+            break
 
-            if page_number > total_pages:
-                break
+        merged_page_data = merge_auction_and_page_data(parsed_auctions, parsed_page_data)
+        all_auctions.extend(merged_page_data['auctions'])
 
-        return {'auctions': all_auctions, 'pageInfo': last_page_info}
-    except Exception as error:
-        print(f"Error in fetch_all_pages: {str(error)}")
-        raise
+        print(f"Processed page {page_number} of {total_pages}")
+        page_number += 1
 
-async def fetch_auction_list(page_number=1, max_retries=3):
-    print(f"Fetching auction list for page {page_number}...")
-    async with aiofiles.open('cookies.json', 'r') as f:
-        cookies_json = await f.read()
-    cookies_array = json.loads(cookies_json)
-    cookie_string = "; ".join([f"{cookie['name']}={cookie['value']}" for cookie in cookies_array if cookie['domain'] == '.realforeclose.com' or cookie['domain'] == 'manatee.realforeclose.com'])
+        if page_number > total_pages:
+            break
 
-    proxy_url = f"http://{proxy_username}:{proxy_password}@{proxy_host}:{proxy_port}"
-    load_url = f"https://manatee.realforeclose.com/index.cfm?zaction=AUCTION&Zmethod=UPDATE&FNC=LOAD&AREA=C&PageDir=1&doR=0&bypassPage={page_number}"
+    return {'auctions': all_auctions, 'pageInfo': parsed_page_data['pageInfo']}
 
+
+
+async def fetch_auction_list(page, county_website, page_number):
+    max_retries = 3
     for attempt in range(max_retries):
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(load_url, proxy=proxy_url, headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Cookie': cookie_string
-                }) as response:
-                    content_type = response.headers.get('Content-Type', '')
-                    text = await response.text()
-                    
-                    print(f"Response status: {response.status}")
-                    
-                    # Trim the response text before parsing JSON
-                    trimmed_text = text.strip()
-                    data = json.loads(trimmed_text)
-                    print(f"Auction list for page {page_number} fetched successfully")
-                    return data
-        except (json.JSONDecodeError, ValueError, aiohttp.ClientError) as e:
-            print(f"Error on attempt {attempt + 1}: {str(e)}")
-            if attempt == max_retries - 1:
-                print("Max retries reached. Unable to fetch auction list.")
-                if 'html' in content_type.lower():
-                    print("Received HTML response. Attempting to extract data...")
-                    soup = BeautifulSoup(text, 'html.parser')
-                    error_message = soup.find('div', class_='error-message')
-                    if error_message:
-                        print(f"Error message found: {error_message.text.strip()}")
-                raise ValueError(f"Unable to parse response as JSON. Content type: {content_type}")
+            load_url = f"https://{county_website}/index.cfm?zaction=AUCTION&Zmethod=UPDATE&FNC=LOAD&AREA=C&PageDir=1&doR=0&bypassPage={page_number}"
+            response = await page.goto(load_url, wait_until="networkidle")
+            
+            if response.ok:
+                text = await response.text()
+                data = json.loads(text.strip())
+                print(f"Auction list for page {page_number} fetched successfully")
+                return data
             else:
-                print(f"Retrying in 2 seconds...")
+                raise ValueError(f"HTTP error: {response.status}")
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"Attempt {attempt + 1} failed: {str(e)}. Retrying...")
                 await asyncio.sleep(1)
-
-
-async def fetch_page_info(rlist, max_retries=3):
-    print('Fetching page info...')
-    async with aiofiles.open('cookies.json', 'r') as f:
-        cookies_json = await f.read()
-    cookies_array = json.loads(cookies_json)
-    cookie_string = "; ".join([f"{cookie['name']}={cookie['value']}" for cookie in cookies_array if cookie['domain'] == '.realforeclose.com' or cookie['domain'] == 'manatee.realforeclose.com'])
-
-    proxy_url = f"http://{proxy_username}:{proxy_password}@{proxy_host}:{proxy_port}"
-
-    timestamp = int(datetime.now().timestamp() * 1000)
-    load_url = f"https://manatee.realforeclose.com/index.cfm?zaction=AUCTION&ZMETHOD=UPDATE&FNC=UPDATE&ref={','.join(rlist)}&tx={timestamp}&_={timestamp - 321}"
-
-    for attempt in range(max_retries):
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(load_url, proxy=proxy_url, headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Cookie': cookie_string,
-                    'referer': 'https://manatee.realforeclose.com/index.cfm?zaction=AUCTION&zmethod=PREVIEW&AuctionDate=09/16/2024',
-                    'x-requested-with': 'XMLHttpRequest'
-                }) as response:
-                    content_type = response.headers.get('Content-Type', '')
-                    text = await response.text()
-                    
-                    print(f"Response status: {response.status}")
-                    
-                    # Trim the response text before parsing JSON
-                    trimmed_text = text.strip()
-                    data = json.loads(trimmed_text)
-                    print('Page info fetched successfully')
-                    return data
-        except (json.JSONDecodeError, ValueError, aiohttp.ClientError) as e:
-            print(f"Error on attempt {attempt + 1}: {str(e)}")
-            if attempt == max_retries - 1:
-                print("Max retries reached. Unable to fetch page info.")
+            else:
+                print(f"All {max_retries} attempts failed.")
                 raise
-            else:
-                print(f"Retrying in 2 seconds...")
-                await asyncio.sleep(1)
 
+async def fetch_page_info(page, county_website, rlist):
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            timestamp = int(datetime.now().timestamp() * 1000)
+            load_url = f"https://{county_website}/index.cfm?zaction=AUCTION&ZMETHOD=UPDATE&FNC=UPDATE&ref={','.join(rlist)}&tx={timestamp}&_={timestamp - 321}"
+            
+            response = await page.goto(load_url, wait_until="networkidle")
+            
+            if response.ok:
+                text = await response.text()
+                data = json.loads(text.strip())
+                print('Page info fetched successfully')
+                return data
+            else:
+                raise ValueError(f"HTTP error: {response.status}")
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"Attempt {attempt + 1} failed: {str(e)}. Retrying...")
+                await asyncio.sleep(1)
+            else:
+                print(f"All {max_retries} attempts failed.")
+                raise
 
 def preprocess_html(html):
     print('Preprocessing HTML...')
     replacements = {
-        '@A': '<div class="',
-        '@B': '</div>',
-        '@C': 'class="',
-        '@D': '<div>',
-        '@E': 'AUCTION',
-        '@F': '</td><td',
-        '@G': '</td></tr>',
-        '@H': '<tr><td ',
-        '@I': 'table',
-        '@J': 'p_back="NextCheck=',
-        '@K': 'style="Display:none"',
+        '@A': '<div class="', '@B': '</div>', '@C': 'class="', '@D': '<div>', 
+        '@E': 'AUCTION', '@F': '</td><td', '@G': '</td></tr>', '@H': '<tr><td ', 
+        '@I': 'table', '@J': 'p_back="NextCheck=', '@K': 'style="Display:none"', 
         '@L': '/index.cfm?zaction=auction&zmethod=details&AID='
     }
 
     for key, value in replacements.items():
         html = html.replace(key, value)
+    #print(html)  # For debugging
     return html
+
 
 def parse_auction_data(data):
     print('Parsing auction data...')
     processed_html = preprocess_html(data['retHTML'])
+    #print(processed_html)  # For debugging
     soup = BeautifulSoup(processed_html, 'html.parser')
 
     auctions = []
@@ -253,20 +217,23 @@ def parse_auction_data(data):
         item = {}
         address_parts = []
         for row in element.select('tr'):
-            label = row.select_one('th').text.strip().rstrip(':')
+            label_elem = row.select_one('th')
             value_elem = row.select_one('td')
-            if label == 'Parcel ID':
-                value = value_elem.select_one('a').text.strip()
-            else:
-                value = value_elem.text.strip()
             
-            if label == 'Property Address':
-                address_parts.append(value)
-            elif not label:  # This is likely the continuation of the address
-                address_parts.append(value)
-            elif label and value:
-                item[label] = value
-        
+            if label_elem and value_elem:
+                label = label_elem.text.strip().rstrip(':')
+                if label == 'Parcel ID':
+                    value = value_elem.select_one('a').text.strip() if value_elem.select_one('a') else value_elem.text.strip()
+                else:
+                    value = value_elem.text.strip()
+
+                if label == 'Property Address':
+                    address_parts.append(value)
+                elif not label:  # This is likely the continuation of the address
+                    address_parts.append(value)
+                elif label and value:
+                    item[label] = value
+
         # Combine address parts and split into components
         full_address = ' '.join(address_parts)
         address_components = full_address.split(',')
@@ -301,57 +268,92 @@ def parse_page_data(data):
             return templates.get(f"{i_field}_{i_data}")
         return False if i_data == "-" else True if i_data == "+" else i_data
 
+    # Check if the expected keys are present in the data
+    if 'CC' not in data or 'CM' not in data:
+        print("Warning: No auction data found.")
+        return {
+            'pageInfo': {
+                'current': 0,
+                'total': 0,
+                'winning': {'count': 0, 'max': 0},
+                'nextCheck': None
+            },
+            'resetRequired': {
+                'all': False, 'regular': False, 'completed': False, 'winning': False
+            },
+            'auctions': [],
+            'remainingTime': []
+        }
+
     parsed_data = {
         'pageInfo': {
-            'current': data['CC'], 'total': data['CM'],
-            'winning': {'count': data['WC'], 'max': data['WM']},
-            'nextCheck': data['NC']
+            'current': data.get('CC', 0),
+            'total': data.get('CM', 0),
+            'winning': {'count': data.get('WC', 0), 'max': data.get('WM', 0)},
+            'nextCheck': data.get('NC')
         },
         'resetRequired': {
-            'all': data['RA'], 'regular': data['RR'], 'completed': data['RC'], 'winning': data['RW']
+            'all': data.get('RA', False),
+            'regular': data.get('RR', False),
+            'completed': data.get('RC', False),
+            'winning': data.get('RW', False)
         },
-        'auctions': [{
-            'id': item['AID'],
-            'status': {'message': get_template(item['A'], 'A'), 'timestamp': item['B']},
-            'amount': {'label': item['C'], 'value': item['D']},
-            'soldTo': {'label': item['SL'], 'value': item['ST']},
+        'auctions': [],
+        'remainingTime': []
+    }
+
+    if 'ADATA' in data and 'AITEM' in data['ADATA']:
+        parsed_data['auctions'] = [{
+            'id': item.get('AID'),
+            'status': {'message': get_template(item.get('A'), 'A'), 'timestamp': item.get('B')},
+            'amount': {'label': item.get('C'), 'value': item.get('D')},
+            'soldTo': {'label': item.get('SL'), 'value': item.get('ST')},
             'extraInfo': {
-                'proxyBid': get_template(item['E'], 'E'), 'F': item['F'], 'G': item['G'], 'H': item['H'],
-                'nameOnTitle': get_template(item['I'], 'I')
+                'proxyBid': get_template(item.get('E'), 'E'),
+                'F': item.get('F'),
+                'G': item.get('G'),
+                'H': item.get('H'),
+                'nameOnTitle': get_template(item.get('I'), 'I')
             },
             'bidInfo': {
-                'placeBid': get_template(item['PB'], 'PB'),
-                'showPlaceBid': item['SP'], 'showBidHistory': item['SBH']
+                'placeBid': get_template(item.get('PB'), 'PB'),
+                'showPlaceBid': item.get('SP'),
+                'showBidHistory': item.get('SBH')
             },
             'styleInfo': {
-                'panelStatus': get_template(item['PS'], "PS"),
-                'itemType': get_template(item['S'], 'S'),
-                'priceVisibility': get_template(item['P'], 'P')
-            }
-        } for item in data['ADATA']['AITEM']],
-        'remainingTime': [{
-            'id': item['AID'], 'timeRemaining': item['TREM']
+                'panelStatus': get_template(item.get('PS'), "PS"),
+                'itemType': get_template(item.get('S'), 'S'),
+                'priceVisibility': get_template(item.get('P'), 'P')
+            },
+            'lendersStartingBidAmount': item.get('P')
+        } for item in data['ADATA']['AITEM']]
+
+    if 'RTIME' in data and 'RITEM' in data['RTIME']:
+        parsed_data['remainingTime'] = [{
+            'id': item.get('AID'),
+            'timeRemaining': item.get('TREM')
         } for item in data['RTIME']['RITEM']]
-    }
 
     print(f"Parsed page data with {len(parsed_data['auctions'])} auctions")
     return parsed_data
 
-def merge_auction_data(detailed_data, update_data):
+
+
+def merge_auction_and_page_data(auctions_data, page_data):
     print('Merging auction data...')
-    detailed_auction_map = {detailed_data['rlist'][i]: auction for i, auction in enumerate(detailed_data['auctions'])}
+    detailed_auction_map = {auctions_data['rlist'][i]: auction for i, auction in enumerate(
+        auctions_data['auctions'])}
 
-    # Save detailed_data and update_data as JSON in results folder
+    # Save auctions_data and page_data as JSON in results folder
     os.makedirs('results', exist_ok=True)
-    with open('results/detailed_data.json', 'w') as f:
-        json.dump(detailed_data, f, indent=2)
-    with open('results/update_data.json', 'w') as f:
-        json.dump(update_data, f, indent=2)
-    print('Saved detailed_data.json and update_data.json in results folder')
-
+    with open('results/auctions_data.json', 'w') as f:
+        json.dump(auctions_data, f, indent=2)
+    with open('results/page_data.json', 'w') as f:
+        json.dump(page_data, f, indent=2)
+    print('Saved auctions_data.json and page_data.json in results folder')
     merged_data = {
-        'pageInfo': update_data['pageInfo'],
-        'resetRequired': update_data['resetRequired'],
+        'pageInfo': page_data['pageInfo'],
+        'resetRequired': page_data['resetRequired'],
         'auctions': [{
             **update_auction,
             'details': {
@@ -366,10 +368,11 @@ def merge_auction_data(detailed_data, update_data):
                 'propertyState': detailed_auction_map.get(update_auction['id'], {}).get('Property State', ''),
                 'propertyZip': detailed_auction_map.get(update_auction['id'], {}).get('Property Zip', ''),
                 'certificateNumber': detailed_auction_map.get(update_auction['id'], {}).get('Certificate #', ''),
-                'openingBid': detailed_auction_map.get(update_auction['id'], {}).get('Opening Bid', '')
+                'openingBid': detailed_auction_map.get(update_auction['id'], {}).get('Opening Bid', ''),
+                'lendersStartingBidAmount': update_auction.get('lendersStartingBidAmount', '')
             }
-        } for update_auction in update_data['auctions']],
-        'rlist': detailed_data['rlist']
+        } for update_auction in page_data['auctions']],
+        'rlist': auctions_data['rlist']
     }
 
     print(f"Merged data for {len(merged_data['auctions'])} auctions")
@@ -381,55 +384,63 @@ def merge_auction_data(detailed_data, update_data):
 
 
 
-def clean_and_filter_auction_data(merged_data, auction_date):
-    print('Cleaning and filtering auction data...')
+def clean_and_filter_auction_data(merged_data, auction_date, county_website):
     cleaned_data = []
+    county_name = extract_county_name(county_website)
+    
+    if not merged_data['auctions']:
+        print(f"No auctions found for {county_name} on {auction_date}")
+        return cleaned_data
+    #print(merged_data['auctions'])
     for auction in merged_data['auctions']:
         if auction['soldTo']['value'] == '3rd Party Bidder':
             try:
-                cleaned_auction = {
+                cleaned_auction = {column: None for column in COLUMN_NAMES}  # Initialize all columns with None
+                
+                cleaned_auction.update({
                     'Auction Date': auction_date,
-                    'County': 'Manatee',
-                    'Auction Type': auction['details']['auctionType'],
+                    'County': county_name,
+                    'Auction Type': auction['details'].get('auctionType', ''),
                     'Sold Amount': parse_float(auction['amount']['value']),
-                    'Opening Bid': parse_float(auction['details']['openingBid']),
-                    'Case #': auction['details']['caseNumber'].strip(),
-                    'Parcel ID': auction['details']['parcelId'],
-                    'Property Address': auction['details']['propertyAddress'],
+                    'Opening Bid': parse_float(auction['details'].get('openingBid', '')),
+                    'Case #': auction['details'].get('caseNumber', '').strip(),
+                    'Parcel ID': auction['details'].get('parcelId', ''),
+                    'Property Address': auction['details'].get('propertyAddress', ''),
                     'Property City': auction['details'].get('propertyCity', ''),
                     'Property State': auction['details'].get('propertyState', ''),
                     'Property Zip': auction['details'].get('propertyZip', ''),
-                    'Assessed Value': parse_float(auction['details']['assessedValue']),
-                    'Auction Status': auction['status']['message'],
-                    'Certificate #': auction['details']['certificateNumber'],
-                    'Sold Date': auction['status']['timestamp'],
-                    'Sold To': auction['soldTo']['value'],
-                    'Final Judgment Amount': parse_float(auction['details']['finalJudgmentAmount'])
-                }
+                    'Assessed Value': parse_float(auction['details'].get('assessedValue', '')),
+                    'Auction Status': auction['status'].get('message', ''),
+                    'Certificate #': auction['details'].get('certificateNumber', ''),
+                    'Sold Date': auction['status'].get('timestamp', ''),
+                    'Sold To': auction['soldTo'].get('value', ''),
+                    'Final Judgment Amount': parse_float(auction['details'].get('finalJudgmentAmount', '')),
+                    'Plaintiff Max Bid': parse_float(auction['details'].get('plaintiffMaxBid', '')),
+                    'Lenders Starting Bid Amount': parse_float(auction['details'].get('lendersStartingBidAmount', ''))
+                })
+                
                 if cleaned_auction['Auction Type'] == 'FORECLOSURE':
                     if cleaned_auction['Sold Amount'] is not None and cleaned_auction['Final Judgment Amount'] is not None:
                         cleaned_auction['Excess Amount'] = cleaned_auction['Sold Amount'] - cleaned_auction['Final Judgment Amount']
-                    else:
-                        cleaned_auction['Excess Amount'] = None
                 else:
                     if cleaned_auction['Sold Amount'] is not None and cleaned_auction['Opening Bid'] is not None:
                         cleaned_auction['Excess Amount'] = cleaned_auction['Sold Amount'] - cleaned_auction['Opening Bid']
-                    else:
-                        cleaned_auction['Excess Amount'] = None
+                
                 cleaned_data.append(cleaned_auction)
-            except KeyError as e:
-                print(f"Warning: Missing key in auction data: {e}")
             except Exception as e:
                 print(f"Error processing auction: {e}")
-    
-    print(f"Cleaned and filtered data for {len(cleaned_data)} auctions")
-    
+
+    logger.info(f"Cleaned and filtered data for {len(cleaned_data)} auctions")
+
     # Save cleaned_data as JSON in results folder
     os.makedirs('results', exist_ok=True)
-    with open('results/cleaned_data.json', 'w') as f:
+    county_prefix = get_county_prefix(county_website)
+    with open(f'results/{county_prefix}_cleaned_data.json', 'w') as f:
         json.dump(cleaned_data, f, indent=2)
-    print('Saved cleaned_data.json in results folder')
+    print(f'Saved {county_prefix}_cleaned_data.json in results folder')
     return cleaned_data
+
+
 
 def parse_float(value):
     try:
@@ -438,80 +449,191 @@ def parse_float(value):
         print(f"Warning: Could not convert '{value}' to float")
         return None
 
-# ... [rest of the script remains the same] ...
 
-async def save_to_csv(data, filename):
+async def save_to_csv(data, filename, county_website):
     print(f'Saving data to CSV: {filename}')
     os.makedirs('results', exist_ok=True)
-    filepath = os.path.join('results', filename)
-    
-    fieldnames = [
-        'Auction Date', 'County', 'Auction Type', 'Sold Amount', 'Opening Bid', 
-        'Excess Amount', 'Case #', 'Parcel ID', 'Property Address', 'Property City',
-        'Property State', 'Property Zip', 'Assessed Value', 'Auction Status',
-        'Certificate #', 'Sold Date', 'Sold To', 'Final Judgment Amount'
-    ]
-    
+    county_prefix = get_county_prefix(county_website)
+    filepath = os.path.join('results', f"{county_prefix}_{filename}")
+
     async with aiofiles.open(filepath, mode='w', newline='', encoding='utf-8') as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
-        await file.write(','.join(fieldnames) + '\n')  # Write header
+        writer = csv.DictWriter(file, fieldnames=COLUMN_NAMES)
+        await file.write(','.join(COLUMN_NAMES) + '\n')  # Write header
         for row in data:
-            await file.write(','.join(str(row.get(field, '')) for field in fieldnames) + '\n')
-    
+            csv_row = {field: (str(row.get(field, '')) if row.get(field) is not None else '') for field in COLUMN_NAMES}
+            await file.write(','.join(csv_row.values()) + '\n')
+
     print(f'Data saved to CSV: {filepath}')
 
-async def save_to_json(data, filename):
+
+
+async def save_to_json(data, filename, county_website):
     print(f'Saving data to JSON: {filename}')
     os.makedirs('results', exist_ok=True)
-    filepath = os.path.join('results', filename)
-    
+    county_prefix = get_county_prefix(county_website)
+    filepath = os.path.join('results', f"{county_prefix}_{filename}")
+
     async with aiofiles.open(filepath, mode='w', encoding='utf-8') as file:
         await file.write(json.dumps(data, indent=2))
-    
+
     print(f'Data saved to JSON: {filepath}')
 
-async def run_new_scraper(auction_date=None):
+#new_scraper.py
+def log(message, level='info'):
+    print(message)
+    if logger:
+        if level == 'info':
+            logger.info(message)
+        elif level == 'error':
+            logger.error(message)
+        elif level == 'warning':
+            logger.warning(message)
+
+async def run_new_scraper(county_website, auction_date=None):
     start_time = time.time()
 
     if auction_date is None:
-        auction_date = datetime(2024, 9, 16)
+        auction_date = datetime(2024, 9, 11)  # Use specified date
     formatted_date = auction_date.strftime("%m/%d/%Y")
 
-
     start_time = datetime.now()
-    print(f"Scraper started at: {start_time.isoformat()}")
+    if logger:
+        logger.info(f"Scraper started for website: {county_website}, date: {formatted_date}")
+    else:
+        print(f"Scraper started for website: {county_website}, date: {formatted_date}")
 
-    try:
-        print('Initializing session...')
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            proxy={
+                "server": f"http://{proxy_host}:{proxy_port}",
+                "username": proxy_username,
+                "password": proxy_password
+            }
+        )
+        context = await browser.new_context(
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        )
+        page = await context.new_page()
 
-        await initialize_session(formatted_date)
+        try:
+            if logger:
+                logger.info(f'Initializing session for {county_website}...')
+            else:
+                print(f'Initializing session for {county_website}...')
+            await initialize_session(page, county_website, formatted_date)
+
+            if logger:
+                logger.info(f'Fetching data from all pages for {county_website}...')
+            else:
+                print(f'Fetching data from all pages for {county_website}...')
+            all_data = await fetch_all_pages(page, county_website)
+
+            if logger:
+                logger.info(f'Cleaning and filtering auction data for {county_website}...')
+            else:
+                print(f'Cleaning and filtering auction data for {county_website}...')
+            cleaned_data = clean_and_filter_auction_data(all_data, formatted_date, county_website)
+
+            if cleaned_data:
+                if logger:
+                    logger.info(f'Saving cleaned auction data to CSV for {county_website}...')
+                else:
+                    print(f'Saving cleaned auction data to CSV for {county_website}...')
+                csv_filename = f"{formatted_date.replace('/', '-')}.csv"
+                await save_to_csv(cleaned_data, csv_filename, county_website)
+
+                if logger:
+                    logger.info(f'Saving final JSON data for {county_website}...')
+                else:
+                    print(f'Saving final JSON data for {county_website}...')
+                json_filename = f"{formatted_date.replace('/', '-')}_final.json"
+                await save_to_json(all_data, json_filename, county_website)
+
+                if logger:
+                    logger.info(f'Sending data to Google Sheets for {county_website}...')
+                else:
+                    print(f'Sending data to Google Sheets for {county_website}...')
+                send_auction_data(formatted_date, cleaned_data)
+            else:
+                if logger:
+                    logger.info(f"No auction data found for {county_website} on {formatted_date}. Skipping CSV, JSON, and Google Sheets operations.")
+                else:
+                    print(f"No auction data found for {county_website} on {formatted_date}. Skipping CSV, JSON, and Google Sheets operations.")
+
+            end_time = datetime.now()
+            elapsed_time = (end_time - start_time).total_seconds()
+            if logger:
+                logger.info(f"Scraper completed successfully for {county_website} at: {end_time.isoformat()}")
+                logger.info(f"Total execution time for {county_website}: {elapsed_time:.2f} seconds")
+            else:
+                print(f"Scraper completed successfully for {county_website} at: {end_time.isoformat()}")
+                print(f"Total execution time for {county_website}: {elapsed_time:.2f} seconds")
+        except Exception as error:
+            end_time = datetime.now()
+            elapsed_time = (end_time - start_time).total_seconds()
+            if logger:
+                logger.error(f"Error in main function for {county_website} after {elapsed_time:.2f} seconds: {str(error)}")
+            else:
+                print(f"Error in main function for {county_website} after {elapsed_time:.2f} seconds: {str(error)}")
+        finally:
+            await browser.close()
+
+
+async def run_all_counties(json_file_path):
+    # Load the JSON file
+    with open(json_file_path, 'r') as file:
+        counties_data = json.load(file)
+
+    # Loop through each county website
+    for county_data in counties_data:
+        county_website = county_data['website']
         
-        print('Fetching data from all pages...')
-        all_data = await fetch_all_pages()
-        
-        print('Cleaning and filtering auction data...')
-        cleaned_data = clean_and_filter_auction_data(all_data, date)
-        
-        print('Saving cleaned auction data to CSV...')
-        csv_filename = f"{date.replace('/', '-')}.csv"
-        await save_to_csv(cleaned_data, csv_filename)
+        print("\n" + "="*50)
+        print(f"Starting scraper for: {county_website}")
+        print("="*50 + "\n")
 
-        print('Saving final JSON data...')
-        json_filename = f"{date.replace('/', '-')}_final.json"
-        await save_to_json(all_data, json_filename)
+        try:
+            auction_date = datetime(2024, 9, 11)  # September 18, 2024
+            await run_new_scraper(county_website, auction_date)
+        except Exception as e:
+            print(f"Error occurred while scraping {county_website}: {str(e)}")
 
-        print('Sending data to Google Sheets...')
-        send_auction_data(date, cleaned_data)
+        print("\n" + "="*50)
+        print(f"Finished scraping: {county_website}")
+        print("="*50 + "\n")
 
-        end_time = datetime.now()
-        elapsed_time = (end_time - start_time).total_seconds()
-        print(f"Scraper completed successfully at: {end_time.isoformat()}")
-        print(f"Total execution time: {elapsed_time:.2f} seconds")
-    except Exception as error:
-        end_time = datetime.now()
-        elapsed_time = (end_time - start_time).total_seconds()
-        print(f"Error in main function after {elapsed_time:.2f} seconds:", str(error))
+        # Optional: Add a delay between scraping different websites
+        await asyncio.sleep(5)  # 5 seconds delay, adjust as needed
 
+    # Retry failed initializations
+    if initializing_fail_list:
+        print("\nRetrying failed initializations...")
+        for failed_county in initializing_fail_list[:]:
+            print(f"Retrying: {failed_county}")
+            try:
+                await run_new_scraper(failed_county, auction_date)
+                initializing_fail_list.remove(failed_county)
+                print(f"Successfully scraped on retry: {failed_county}")
+            except Exception as e:
+                print(f"Failed to scrape on retry: {failed_county}. Error: {str(e)}")
+
+        if initializing_fail_list:
+            print("\nCounties that failed after retry:")
+            for county in initializing_fail_list:
+                print(county)
+        else:
+            print("\nAll retries successful!")
 
 if __name__ == "__main__":
-    asyncio.run(run_new_scraper())
+    json_file_path = 'counties_websites_list.json'
+    #county_website = "eagle.realforeclose.com"
+    #county_website = "duval.realtaxdeed.com"
+    #asyncio.run(run_new_scraper(county_website))
+    if not os.path.exists(json_file_path):
+        logger.error(f"Error: The file {json_file_path} does not exist.")
+        logger.info("Falling back to default county website...")
+        county_website = "manatee.realforeclose.com"
+        asyncio.run(run_new_scraper(county_website))
+    else:
+        asyncio.run(run_all_counties(json_file_path))

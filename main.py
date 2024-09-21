@@ -8,7 +8,7 @@ from scraper import run_scraper
 from new_scraper import run_new_scraper
 from log_viewer import app as flask_app
 import threading
-
+#main.py
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
@@ -86,6 +86,10 @@ def run_schedule():
 def run_flask():
     flask_app.run(host='0.0.0.0', port=5000)
 
+def get_logger():
+    return logger
+
+
 if __name__ == "__main__":
     try:
         # Start Flask app in a separate thread
@@ -96,5 +100,7 @@ if __name__ == "__main__":
         run_schedule()
     except KeyboardInterrupt:
         logger.info("Scheduler stopped by user")
+        print("Scheduler stopped by user")
     except Exception as e:
         logger.critical(f"Unexpected error occurred: {str(e)}", exc_info=True)
+        print(f"Unexpected error occurred: {str(e)}")
