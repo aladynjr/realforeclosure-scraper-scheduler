@@ -1,24 +1,14 @@
 import asyncio
-import schedule
 import time
 from datetime import datetime, timedelta
 import pytz
-import logging
-from scraper import run_scraper
-from new_scraper import run_new_scraper
+from new_scraper import run_all_counties
 from log_viewer import app as flask_app
 import threading
-#main.py
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('scraper_scheduler.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+
+from logger import get_logger
+
+logger = get_logger()
 
 def job():
     est_time = datetime.now(pytz.timezone('US/Eastern'))
@@ -29,8 +19,8 @@ def job():
     
     while retry_count < max_retries:
         try:
-            today = datetime.now().date()
-            asyncio.run(run_new_scraper(auction_date=today))
+            json_file_path = 'counties_websites_list.json'
+            asyncio.run(run_all_counties(json_file_path))
             logger.info("Scraper job completed successfully")
             return  # Exit the function if successful
         except Exception as e:
@@ -85,10 +75,6 @@ def run_schedule():
 
 def run_flask():
     flask_app.run(host='0.0.0.0', port=5000)
-
-def get_logger():
-    return logger
-
 
 if __name__ == "__main__":
     try:

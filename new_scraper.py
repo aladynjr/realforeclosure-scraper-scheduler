@@ -13,11 +13,10 @@ import pytz
 from datetime import date
 import re
 
-try:
-    from main import get_logger
-    logger = get_logger()
-except ImportError:
-    logger = None
+from logger import get_logger
+
+logger = get_logger()
+
 
 import time
 # Load environment variables
