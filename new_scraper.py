@@ -129,6 +129,7 @@ async def fetch_all_pages(page, county_website):
         page_number += 1
 
         if page_number > total_pages:
+            logger.info(f"Total auctions found: {len(all_auctions)}")
             break
 
     return {'auctions': all_auctions, 'pageInfo': parsed_page_data['pageInfo']}
