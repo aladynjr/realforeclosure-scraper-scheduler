@@ -69,9 +69,11 @@ def view_log():
     # Process logs to add HTML tags for highlighting
     processed_logs = []
     for log in logs:
-        if "Initializing session" in log:
+        if "Initializing session" in log or "Sleeping for" in log:
             processed_logs.append("\n")
-        log = re.sub(r'Scraper started for website: (\S+)', r'Scraper started for website: <a href="http://\1" target="_blank">\1</a>', log)
+       # log = re.sub(r'Scraper started for website: (\S+)', r'Scraper started for website: <a href="http://\1" target="_blank">\1</a>', log)
+        log = re.sub(r'(\S+\.realforeclose\.com)', r'<a href="http://\1" target="_blank">\1</a>', log)
+        log = re.sub(r'(\S+\.realtaxdeed\.com)', r'<a href="http://\1" target="_blank">\1</a>', log)
         log = log.replace("Scraper started", '<span class="starting">Scraper started</span>')
     #    log = log.replace("Initializing session", '<span class="initializing">Initializing session</span>')
         log = log.replace("Total auctions found", '<span class="fetching">Total auctions found</span>')
