@@ -116,7 +116,7 @@ async def fetch_all_pages(page, county_website):
 
         if total_pages is None:
             total_pages = int(parsed_page_data['pageInfo']['total'])
-            logger.info(f"Total pages: {total_pages}")
+            print(f"Total pages: {total_pages}")
 
         if total_pages == 0:
             print("No auctions found for this date.")
