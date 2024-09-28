@@ -229,10 +229,16 @@ def parse_auction_data(data):
         full_address = ' '.join(address_parts)
         address_components = full_address.split(',')
         if len(address_components) == 2:
-            item['Property Address'] = address_components[0].strip()
+            address_field = address_components[0].strip()
+            address_words = address_field.split()
+            if len(address_words) > 1:
+                item['Property Address'] = ' '.join(address_words[:-1])
+                item['Property City'] = address_words[-1]
+            else:
+                item['Property Address'] = address_field
+                item['Property City'] = address_field
             state_zip = address_components[1].strip().split('-')
             if len(state_zip) == 2:
-                item['Property City'] = address_components[0].strip().split()[-1]
                 item['Property State'] = state_zip[0].strip()
                 item['Property Zip'] = state_zip[1].strip()
         else:
